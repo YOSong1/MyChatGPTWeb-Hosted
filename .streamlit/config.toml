@@ -1,0 +1,13 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+address = "localhost"
+port = 8765
+runOnSave = false
+fileWatcherType = "none"
+enableXsrfProtection = true
+
+[theme]
+base = "light"
