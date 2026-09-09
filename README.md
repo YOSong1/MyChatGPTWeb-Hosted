@@ -43,5 +43,5 @@ macOS 빌드는 GitHub Actions의 "Build executables" 워크플로를 수동 실
 - [x] 3.5단계 도구: Responses API 전환, 🌐 웹 검색(출처 표시), 📎 파일 생성(코드 실행 → 다운로드), 코드 블록 저장 버튼
 - [x] 4단계 런처: `python launcher.py` 로 서버 기동과 브라우저 자동 열기, 중복 실행 감지
 - [x] 5단계 Windows 빌드: PyInstaller spec, 훅, 빌드 스크립트, `--selftest` 자체 점검
-- [ ] 6단계 GitHub Actions 빌드 (macOS 포함): 워크플로 작성 완료. 비공개 저장소에 올린 뒤 수동 실행 필요
+- [x] 6단계 GitHub Actions 빌드: https://github.com/YOSong1/MyChatGPTWeb 비공개 저장소. Windows, macOS arm64, macOS x64 3종 빌드와 자체 점검 통과 (0.2.0). 실제 Mac 실행 확인은 진행 중
 - [ ] 7단계 배포·안내문: `docs/학생안내.md` 초안 작성. 시험 배포 후 보완

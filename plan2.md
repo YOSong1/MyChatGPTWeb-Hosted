@@ -276,7 +276,7 @@ python -m nuitka --standalone --onefile --enable-plugin=... launcher.py
 | 3. 대화 관리·설정 ✅ (2026-09-10 완료) | 사이드바, 설정 패널(`ui/settings.py`), 제목 수정, 다시 생성, 내보내기/가져오기 | 새 대화, 전환, 삭제, 모델 변경, 키 삭제 동작 |
 | 4. 런처 ✅ (2026-09-10 완료) | `launcher.py` | `python launcher.py`로 서버 기동과 브라우저 자동 열기 |
 | 5. Windows 빌드 ✅ (2026-09-10 빌드·자체 점검 완료, 타 PC 확인은 미완) | `build.spec`, `hook-streamlit.py`, `build_win.ps1`, `launcher.py --selftest` | 다른 Windows PC(Python 미설치)에서 exe 실행 성공 |
-| 6. GitHub Actions 빌드 | `build.yml`, `build_mac.sh` | Actions 수동 실행으로 3종 zip 생성. Python 미설치 Apple Silicon Mac과 Intel Mac에서 app 실행 성공. Gatekeeper 우회 절차 확인 |
+| 6. GitHub Actions 빌드 ✅ (2026-09-10 3종 빌드·자체 점검 성공, 실제 Mac 실행 확인은 미완) | `build.yml`, `build_mac.sh`. 저장소 https://github.com/YOSong1/MyChatGPTWeb | Actions 수동 실행으로 3종 zip 생성. Python 미설치 Apple Silicon Mac과 Intel Mac에서 app 실행 성공. Gatekeeper 우회 절차 확인 |
 | 7. 배포·안내문 | `README.md`, Google Drive 배포 폴더 | 학생 2~3명(Windows, Mac 각 1명 이상)에게 시험 배포 후 안내문 보완 |
 
 - 5단계가 이 계획의 최대 위험 구간이다. 1~3단계 완료 직후 5단계를 먼저 시도해 패키징 가능 여부를 조기에 확인한다.
