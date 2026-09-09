@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from app.models import Conversation, Settings
+from app.models import ENV_KEY_NAME, Conversation, Settings
 
 APP_DIR_NAME = "MyChatGPTWeb"
 CONFIG_FILE = "config.json"
@@ -78,6 +78,11 @@ def _write_json(path: Path, data: Any) -> None:
 
 
 # ---------- 설정 ----------
+
+def env_api_key() -> str:
+    """환경변수에 등록된 키. 없으면 빈 문자열."""
+    return os.environ.get(ENV_KEY_NAME, "").strip()
+
 
 def load_settings() -> Settings:
     return Settings.from_dict(_read_json(_config_path(), {}))

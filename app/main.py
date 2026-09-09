@@ -27,9 +27,16 @@ def _load_state() -> Settings:
         st.session_state["settings"] = storage.load_settings()
     settings: Settings = st.session_state["settings"]
 
-    # 파일에 저장된 키(remember_key=True)가 있으면 세션에 올린다.
-    if "api_key" not in st.session_state and settings.api_key:
-        st.session_state["api_key"] = settings.api_key
+    if "api_key" not in st.session_state:
+        env_key = storage.env_api_key()
+        if env_key and not st.session_state.get("ignore_env_key"):
+            # 1순위: 환경변수. 파일에는 저장하지 않는다.
+            st.session_state["api_key"] = env_key
+            st.session_state["key_source"] = "env"
+        elif settings.api_key:
+            # 2순위: 파일에 저장된 키(remember_key=True)
+            st.session_state["api_key"] = settings.api_key
+            st.session_state["key_source"] = "file"
     return settings
 
 

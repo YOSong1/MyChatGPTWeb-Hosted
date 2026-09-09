@@ -53,8 +53,10 @@ def _delete_conversation(conv_id: str) -> None:
 
 def _clear_key(notice: str | None = None) -> None:
     storage.clear_api_key()
-    for k in ("api_key", "settings", "models", "pending_error"):
+    for k in ("api_key", "key_source", "settings", "models", "pending_error"):
         st.session_state.pop(k, None)
+    # 환경변수 키를 쓰던 중이었다면, 이번 세션에서는 환경변수를 무시하고 키 화면을 보여준다.
+    st.session_state["ignore_env_key"] = True
     if notice:
         st.session_state["key_notice"] = notice
 

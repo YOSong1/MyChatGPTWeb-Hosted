@@ -111,6 +111,7 @@ def selftest() -> int:
     import tempfile
 
     os.environ["MCW_DATA_DIR"] = tempfile.mkdtemp(prefix="mcw_selftest_")
+    os.environ.pop("OPENAI_API_KEY", None)  # 빌드 머신의 키와 무관하게 키 화면을 검사한다
     os.chdir(str(base_dir()))
     try:
         from streamlit.testing.v1 import AppTest

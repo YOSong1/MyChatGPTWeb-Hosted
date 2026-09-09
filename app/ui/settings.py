@@ -14,6 +14,7 @@ import streamlit as st
 
 from app import openai_client, storage
 from app.models import (
+    ENV_KEY_NAME,
     DEFAULT_MAX_HISTORY,
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_TEMPERATURE,
@@ -136,6 +137,16 @@ def render(settings: Settings, conversations: list[Conversation], on_clear_key) 
 
         # ----- 저장 위치, 키 -----
         st.caption(f"저장 위치: `{storage.data_dir()}`")
-        if st.button("🔑 키 변경 / 삭제", use_container_width=True, key="settings-clear-key"):
+        source = st.session_state.get("key_source")
+        if source == "env":
+            st.caption(f"키 출처: 환경변수 `{ENV_KEY_NAME}`")
+            label = "🔑 다른 키 입력"
+        elif source == "session":
+            st.caption("키 출처: 이번 실행에만 기억 (종료 시 삭제)")
+            label = "🔑 키 변경 / 삭제"
+        else:
+            st.caption("키 출처: 이 컴퓨터에 저장된 키")
+            label = "🔑 키 변경 / 삭제"
+        if st.button(label, use_container_width=True, key="settings-clear-key"):
             on_clear_key()
             st.rerun()

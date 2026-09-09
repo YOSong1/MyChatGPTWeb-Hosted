@@ -13,6 +13,7 @@ streamlit run app\main.py
 ```
 
 브라우저에서 `http://localhost:8765` 접속.
+환경변수 `OPENAI_API_KEY`에 키가 있으면 키 입력 화면을 건너뛴다.
 
 ## 실행 파일 빌드 (Windows)
 

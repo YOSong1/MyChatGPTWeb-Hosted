@@ -7,6 +7,9 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
+# 이 이름의 환경변수에 키가 있으면 키 입력 화면 없이 바로 시작한다.
+ENV_KEY_NAME = "OPENAI_API_KEY"
+
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_SYSTEM_PROMPT = "당신은 학생을 돕는 친절한 학습 도우미입니다. 한국어로 답합니다."
 DEFAULT_TEMPERATURE = 0.7
