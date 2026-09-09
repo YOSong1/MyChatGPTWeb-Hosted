@@ -1,13 +1,15 @@
-"""OpenAI API 호출. 키 검증, 모델 목록 필터, 스트리밍 채팅.
+"""OpenAI API 호출. 키 검증, 모델 목록 필터, 스트리밍 채팅(Responses API).
 
-프록시 서버로 전환할 일이 생기면 BASE_URL 하나만 바꾼다.
+- 웹 검색(web_search)과 파일 생성(code_interpreter) 도구는 Responses API에서만 쓸 수 있다.
+- 프록시 서버로 전환할 일이 생기면 BASE_URL 하나만 바꾼다.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Iterator
+from pathlib import Path
+from typing import Callable, Iterator
 
 from openai import (
     APIConnectionError,
@@ -22,7 +24,7 @@ from openai import (
 )
 
 BASE_URL: str | None = None  # None이면 SDK 기본값(https://api.openai.com/v1)
-REQUEST_TIMEOUT = 60.0
+REQUEST_TIMEOUT = 180.0  # 코드 실행 도구는 수십 초가 걸릴 수 있다
 
 # 채팅에 쓸 수 없는 용도의 모델을 이름으로 걸러낸다.
 _EXCLUDE_WORDS = (
@@ -36,6 +38,21 @@ _SNAPSHOT_RE = re.compile(r"-(\d{4}-\d{2}-\d{2}|\d{4}|16k)$")
 _TEMPERATURE_OK_PREFIXES = ("gpt-4", "gpt-3.5")
 
 FALLBACK_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"]
+
+# 도구를 켰을 때 시스템 프롬프트 뒤에 붙이는 지침
+_TOOL_GUIDE_SEARCH = (
+    "최신 정보나 사실 확인이 필요한 질문에는 웹 검색을 사용하고, 답에 출처를 밝힌다."
+)
+_TOOL_GUIDE_FILES = (
+    "사용자가 문서, 슬라이드, 스프레드시트, 코드 파일 등 '파일'을 요청하면 파이썬으로 실제 파일을 "
+    "/mnt/data 에 만들어 제공한다. 파일 이름은 내용을 알 수 있게 짓는다. "
+    "만든 파일마다 답변 끝에 반드시 다운로드 링크를 하나씩 적는다. "
+    "사용한 코드는 사용자가 요청하지 않는 한 답변에 보여주지 않는다."
+)
+
+# 답변 속 sandbox 링크는 앱 밖에서 열리지 않으므로 이름만 남긴다.
+_SANDBOX_LINK_RE = re.compile(r"\[([^\]]+)\]\(sandbox:[^)]+\)")
+_SANDBOX_PATH_RE = re.compile(r"sandbox:/mnt/data/([^\s)\]]+)")
 
 
 class ChatError(Exception):
@@ -97,6 +114,8 @@ def _client(api_key: str) -> OpenAI:
 
 
 def friendly_error(exc: Exception, model: str = "") -> ChatError:
+    if isinstance(exc, ChatError):
+        return exc
     if isinstance(exc, AuthenticationError):
         return ChatError("API Key가 올바르지 않거나 만료되었습니다. 키를 다시 입력하세요.", auth_failed=True)
     if isinstance(exc, PermissionDeniedError):
@@ -130,51 +149,187 @@ def validate_key(api_key: str) -> ValidationResult:
     return ValidationResult(ok=True, models=models)
 
 
-def stream_chat(
-    api_key: str,
-    model: str,
-    messages: list[dict[str, str]],
-    temperature: float | None = None,
-) -> Iterator[str]:
-    """스트리밍으로 답변 조각(str)을 낸다. 오류는 ChatError로 변환해 던진다.
-
-    messages: [{"role": "system"|"user"|"assistant", "content": "..."}]
-    """
-    client = _client(api_key)
-    kwargs: dict = {"model": model, "messages": messages, "stream": True}
-    if temperature is not None and is_temperature_supported(model):
-        kwargs["temperature"] = temperature
-
-    def _open(kw: dict):
-        return client.chat.completions.create(**kw)
-
-    try:
-        try:
-            stream = _open(kwargs)
-        except BadRequestError as exc:
-            # 모델이 temperature를 거부하면 빼고 한 번 더 시도한다.
-            if "temperature" in kwargs and "temperature" in str(exc):
-                kwargs.pop("temperature")
-                stream = _open(kwargs)
-            else:
-                raise
-        for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
-    except ChatError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise friendly_error(exc, model) from exc
-
-
 def build_messages(system_prompt: str, history: list[dict[str, str]], max_history: int) -> list[dict[str, str]]:
-    """시스템 프롬프트 + 최근 max_history개 메시지."""
+    """시스템 프롬프트 + 최근 max_history개 메시지. (system은 Responses API의 instructions로 옮겨 보낸다.)"""
     recent = history[-max_history:] if max_history > 0 else history
     msgs: list[dict[str, str]] = []
     if system_prompt.strip():
         msgs.append({"role": "system", "content": system_prompt.strip()})
     msgs.extend(recent)
     return msgs
+
+
+def clean_sandbox_links(text: str) -> str:
+    text = _SANDBOX_LINK_RE.sub(r"**\1**", text)
+    text = _SANDBOX_PATH_RE.sub(r"\1", text)
+    return text
+
+
+# ---------- 스트리밍 응답 ----------
+
+EventCallback = Callable[[str, str], None]  # (kind, detail) kind: "search" | "code" | "file"
+
+
+class ResponseStream:
+    """Responses API 스트리밍. 이터레이터로 텍스트 조각을 내고, 끝나면 files/citations가 채워진다.
+
+    for piece in stream: ...   # 또는 st.write_stream(stream)
+    stream.files      -> [{"name":..., "path":...}]
+    stream.citations  -> [{"title":..., "url":...}]
+    """
+
+    def __init__(
+        self,
+        client: OpenAI,
+        kwargs: dict,
+        model: str,
+        save_dir: Path | None,
+        on_event: EventCallback | None,
+    ):
+        self._client = client
+        self._kwargs = kwargs
+        self._model = model
+        self._save_dir = save_dir
+        self._on_event = on_event or (lambda kind, detail: None)
+        self.text = ""
+        self.files: list[dict[str, str]] = []
+        self.citations: list[dict[str, str]] = []
+
+    def __iter__(self) -> Iterator[str]:
+        try:
+            try:
+                stream = self._client.responses.create(**self._kwargs, stream=True)
+            except BadRequestError as exc:
+                # 모델이 temperature를 거부하면 빼고 한 번 더 시도한다.
+                if "temperature" in self._kwargs and "temperature" in str(exc):
+                    self._kwargs.pop("temperature")
+                    stream = self._client.responses.create(**self._kwargs, stream=True)
+                else:
+                    raise
+
+            for ev in stream:
+                t = getattr(ev, "type", "")
+                if t == "response.output_text.delta":
+                    self.text += ev.delta
+                    yield ev.delta
+                elif t.startswith("response.web_search_call."):
+                    self._on_event("search", t.rsplit(".", 1)[-1])
+                elif t.startswith("response.code_interpreter_call."):
+                    self._on_event("code", t.rsplit(".", 1)[-1])
+                elif t == "response.completed":
+                    self._collect(ev.response)
+                elif t in ("response.failed", "response.incomplete"):
+                    detail = ""
+                    try:
+                        detail = ev.response.error.message  # type: ignore[union-attr]
+                    except AttributeError:
+                        pass
+                    raise ChatError(f"응답이 완료되지 않았습니다. {detail}".strip())
+                elif t == "error":
+                    raise ChatError(f"OpenAI 오류: {getattr(ev, 'message', '')}")
+        except ChatError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise friendly_error(exc, self._model) from exc
+
+    # ----- 완료 후 출처·파일 수집 -----
+
+    def _collect(self, response) -> None:
+        seen_urls: set[str] = set()
+        seen_files: set[str] = set()
+        containers: list[str] = []
+        for item in getattr(response, "output", None) or []:
+            kind = getattr(item, "type", "")
+            if kind == "code_interpreter_call":
+                cid = getattr(item, "container_id", "")
+                if cid and cid not in containers:
+                    containers.append(cid)
+                continue
+            if kind != "message":
+                continue
+            for part in getattr(item, "content", None) or []:
+                for ann in getattr(part, "annotations", None) or []:
+                    akind = getattr(ann, "type", "")
+                    if akind == "url_citation":
+                        url = getattr(ann, "url", "")
+                        if url and url not in seen_urls:
+                            seen_urls.add(url)
+                            self.citations.append({"title": getattr(ann, "title", "") or url, "url": url})
+                    elif akind == "container_file_citation":
+                        fid = getattr(ann, "file_id", "")
+                        if fid and fid not in seen_files:
+                            seen_files.add(fid)
+                            self._download(getattr(ann, "container_id", ""), fid, getattr(ann, "filename", "") or fid)
+
+        # 모델이 링크를 적지 않아 annotation이 없으면, 코드 실행 컨테이너의 파일 목록에서 직접 찾는다.
+        if containers and self._save_dir is not None:
+            for cid in containers:
+                try:
+                    for f in self._client.containers.files.list(cid):
+                        fid = getattr(f, "id", "")
+                        if not fid or fid in seen_files:
+                            continue
+                        if getattr(f, "source", "") == "user":  # 사용자가 올린 입력 파일은 제외
+                            continue
+                        path = getattr(f, "path", "") or ""
+                        name = path.rsplit("/", 1)[-1] if path else fid
+                        seen_files.add(fid)
+                        self._download(cid, fid, name)
+                except Exception as exc:  # noqa: BLE001
+                    self._on_event("file_error", f"목록 조회 실패: {type(exc).__name__}")
+
+    def _download(self, container_id: str, file_id: str, filename: str) -> None:
+        if not self._save_dir or not container_id:
+            return
+        safe = re.sub(r"[\\/:*?\"<>|]", "_", filename).strip() or file_id
+        target = self._save_dir / safe
+        # 같은 이름이 있으면 (2), (3)… 을 붙인다.
+        if target.exists():
+            stem, suffix = target.stem, target.suffix
+            n = 2
+            while target.exists():
+                target = self._save_dir / f"{stem} ({n}){suffix}"
+                n += 1
+        try:
+            self._on_event("file", safe)
+            data = self._client.containers.files.content.retrieve(file_id, container_id=container_id).read()
+            target.write_bytes(data)
+            self.files.append({"name": target.name, "path": str(target)})
+        except Exception as exc:  # noqa: BLE001
+            # 파일 하나를 못 받아도 답변 자체는 살린다.
+            self._on_event("file_error", f"{safe}: {type(exc).__name__}")
+
+
+def stream_chat(
+    api_key: str,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float | None = None,
+    *,
+    web_search: bool = False,
+    code_interpreter: bool = False,
+    save_dir: Path | None = None,
+    on_event: EventCallback | None = None,
+) -> ResponseStream:
+    """Responses API 스트리밍 호출. messages의 system 항목은 instructions로 보낸다."""
+    instructions_parts = [m["content"] for m in messages if m.get("role") == "system"]
+    if web_search:
+        instructions_parts.append(_TOOL_GUIDE_SEARCH)
+    if code_interpreter:
+        instructions_parts.append(_TOOL_GUIDE_FILES)
+    inputs = [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") != "system"]
+
+    kwargs: dict = {"model": model, "input": inputs}
+    if instructions_parts:
+        kwargs["instructions"] = "\n\n".join(p for p in instructions_parts if p.strip())
+    if temperature is not None and is_temperature_supported(model):
+        kwargs["temperature"] = temperature
+    tools: list[dict] = []
+    if web_search:
+        tools.append({"type": "web_search"})
+    if code_interpreter:
+        tools.append({"type": "code_interpreter", "container": {"type": "auto"}})
+    if tools:
+        kwargs["tools"] = tools
+
+    return ResponseStream(_client(api_key), kwargs, model, save_dir, on_event)

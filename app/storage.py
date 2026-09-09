@@ -99,6 +99,23 @@ def clear_api_key() -> None:
     _write_json(_config_path(), s.to_dict(include_key=False))
 
 
+# ---------- 생성 파일 ----------
+
+def files_dir(conv_id: str) -> Path:
+    """답변이 만든 파일을 두는 폴더. 대화별로 나눈다."""
+    path = data_dir() / "files" / conv_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def delete_files(conv_id: str) -> None:
+    import shutil
+
+    path = data_dir() / "files" / conv_id
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+
+
 # ---------- 대화 ----------
 
 def load_conversations() -> list[Conversation]:

@@ -29,7 +29,7 @@ jobs:
             label: windows-x64
           - os: macos-latest      # Apple Silicon
             label: macos-arm64
-          - os: macos-13          # Intel
+          - os: macos-15-intel    # Intel (macos-13 러너는 퇴역해 대기열에서 영원히 기다린다)
             label: macos-x64
     runs-on: ${{ matrix.os }}
     steps:

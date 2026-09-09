@@ -137,6 +137,7 @@ def render(settings: Settings, conversations: list[Conversation], on_clear_key) 
 
         # ----- 저장 위치, 키 -----
         st.caption(f"저장 위치: `{storage.data_dir()}`")
+        st.caption("생성된 파일은 위 폴더의 `files/` 아래에 대화별로 저장됩니다. 대화를 삭제하면 함께 지워집니다.")
         source = st.session_state.get("key_source")
         if source == "env":
             st.caption(f"키 출처: 환경변수 `{ENV_KEY_NAME}`")

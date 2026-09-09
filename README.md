@@ -40,6 +40,7 @@ macOS 빌드는 GitHub Actions의 "Build executables" 워크플로를 수동 실
 - [x] 1단계 앱 뼈대: 키 입력 화면, 저장소, 채팅 화면 레이아웃
 - [x] 2단계 채팅 기능: 키 서버 검증, OpenAI 스트리밍 응답, 모델 선택, 오류 시 다시 시도
 - [x] 3단계 대화 관리·설정: 시스템 프롬프트, temperature, 기록 개수, 제목 수정, 다시 생성, 내보내기/가져오기
+- [x] 3.5단계 도구: Responses API 전환, 🌐 웹 검색(출처 표시), 📎 파일 생성(코드 실행 → 다운로드), 코드 블록 저장 버튼
 - [x] 4단계 런처: `python launcher.py` 로 서버 기동과 브라우저 자동 열기, 중복 실행 감지
 - [x] 5단계 Windows 빌드: PyInstaller spec, 훅, 빌드 스크립트, `--selftest` 자체 점검
 - [ ] 6단계 GitHub Actions 빌드 (macOS 포함): 워크플로 작성 완료. 비공개 저장소에 올린 뒤 수동 실행 필요
