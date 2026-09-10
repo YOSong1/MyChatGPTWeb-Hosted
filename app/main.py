@@ -1,7 +1,7 @@
-"""Streamlit 앱 본체.
+"""Streamlit 앱 본체 (호스팅 모드).
 
-개발 중 실행: streamlit run app/main.py  또는  python launcher.py
-빌드 후에는 streamlit_entry.py가 이 모듈의 main()을 부른다.
+실행: streamlit run app/main.py
+여러 접속자가 한 서버를 같이 쓴다. 키·설정·대화는 접속자 세션 메모리에만 둔다.
 키가 없으면 키 입력 화면, 있으면 채팅 화면을 보여준다.
 """
 
@@ -26,17 +26,7 @@ def _load_state() -> Settings:
     if "settings" not in st.session_state:
         st.session_state["settings"] = storage.load_settings()
     settings: Settings = st.session_state["settings"]
-
-    if "api_key" not in st.session_state:
-        env_key = storage.env_api_key()
-        if env_key and not st.session_state.get("ignore_env_key"):
-            # 1순위: 환경변수. 파일에는 저장하지 않는다.
-            st.session_state["api_key"] = env_key
-            st.session_state["key_source"] = "env"
-        elif settings.api_key:
-            # 2순위: 파일에 저장된 키(remember_key=True)
-            st.session_state["api_key"] = settings.api_key
-            st.session_state["key_source"] = "file"
+    # 호스팅 모드: 세션에 키가 있을 때만 채팅 화면. 서버 환경변수나 파일은 보지 않는다.
     return settings
 
 

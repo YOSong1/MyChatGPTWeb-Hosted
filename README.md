@@ -1,10 +1,16 @@
-# MyChatGPTWeb
+# MyChatGPTWeb (호스팅판)
 
-OpenAI API Key만 입력하면 ChatGPT처럼 대화할 수 있는 로컬 실행 웹 앱.
-설계 문서: `plan1.md`(화면·기능), `plan2.md`(배포·빌드).
+관리자가 서버에 한 번 올려 두고, 학생은 URL로 접속해 **자기 OpenAI API Key**를 입력해 ChatGPT처럼 대화하는 웹 앱.
+로컬 실행판(`MyChatGPTWeb`)의 복사본이며, 여러 접속자가 한 서버를 같이 쓰도록 저장 방식을 바꿨다.
+설계 문서: `plan3.md`(호스팅판), `plan1.md`(화면·기능), `plan2.md`(로컬 실행판).
 
-## 개발 환경에서 실행 (Windows)
+## 핵심 원칙
+- 키·설정·대화는 접속자의 **세션 메모리**에만 둔다. 서버 디스크에 쓰지 않는다.
+- 서버의 환경변수 키는 사용하지 않는다.
+- 탭을 닫거나 새로고침하면 키와 대화가 사라진다. 보관은 "⚙️ 설정 → 📤 대화 내보내기"로.
+- 답변이 만든 파일은 서버 임시 폴더에 세션별로 두고 6시간 뒤 지운다.
 
+## 로컬에서 실행해 보기
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
@@ -12,36 +18,17 @@ pip install -r requirements.txt
 streamlit run app\main.py
 ```
 
-브라우저에서 `http://localhost:8765` 접속.
-환경변수 `OPENAI_API_KEY`에 키가 있으면 키 입력 화면을 건너뛴다.
+## 배포
+- **Streamlit Community Cloud**: https://share.streamlit.io 에서 이 저장소를 연결. 메인 파일 `app/main.py`, Python 3.12. 절차는 `plan3.md` 3.1절.
+- **VPS / Docker**:
+  ```
+  docker build -t mychatgptweb-hosted .
+  docker run -d --restart unless-stopped -p 8501:8501 mychatgptweb-hosted
+  ```
+  앞단에 Caddy 등으로 HTTPS를 붙인다.
 
-## 실행 파일 빌드 (Windows)
-
-```powershell
-powershell -ExecutionPolicy Bypass -File build\build_win.ps1 -Version 1.0.0            # 폴더 형태
-powershell -ExecutionPolicy Bypass -File build\build_win.ps1 -Version 1.0.0 -OneFile   # 단일 exe
-```
-
-산출물은 `dist\` 아래 zip. 빌드 검증은 `dist\MyChatGPTWeb\MyChatGPTWeb.exe --selftest`.
-macOS 빌드는 GitHub Actions의 "Build executables" 워크플로를 수동 실행해서 받는다(`.github/workflows/build.yml`).
-
-## 데이터 저장 위치
-
-| OS | 경로 |
-|---|---|
-| Windows | `%APPDATA%\MyChatGPTWeb\` |
-| macOS | `~/Library/Application Support/MyChatGPTWeb/` |
-
-- `config.json`: API Key(기억하기 선택 시), 모델, 시스템 프롬프트
-- `conversations.json`: 대화 기록
-
-## 진행 상태
-
-- [x] 1단계 앱 뼈대: 키 입력 화면, 저장소, 채팅 화면 레이아웃
-- [x] 2단계 채팅 기능: 키 서버 검증, OpenAI 스트리밍 응답, 모델 선택, 오류 시 다시 시도
-- [x] 3단계 대화 관리·설정: 시스템 프롬프트, temperature, 기록 개수, 제목 수정, 다시 생성, 내보내기/가져오기
-- [x] 3.5단계 도구: Responses API 전환, 🌐 웹 검색(출처 표시), 📎 파일 생성(코드 실행 → 다운로드), 코드 블록 저장 버튼
-- [x] 4단계 런처: `python launcher.py` 로 서버 기동과 브라우저 자동 열기, 중복 실행 감지
-- [x] 5단계 Windows 빌드: PyInstaller spec, 훅, 빌드 스크립트, `--selftest` 자체 점검
-- [x] 6단계 GitHub Actions 빌드: https://github.com/YOSong1/MyChatGPTWeb 비공개 저장소. Windows, macOS arm64, macOS x64 3종 빌드와 자체 점검 통과 (0.2.0). 실제 Mac 실행 확인은 진행 중
-- [ ] 7단계 배포·안내문: `docs/학생안내.md` 초안 작성. 시험 배포 후 보완
+## 기능
+- 스트리밍 대화, 여러 대화 관리, 제목 수정, 다시 생성
+- 모델 선택 (최신 모델 포함, 채팅용만 필터)
+- 🌐 웹 검색 (출처 표시), 📎 파일 생성 (pptx, docx, xlsx, pdf, py 등 다운로드), 코드 블록 저장
+- 설정: 시스템 프롬프트, temperature, 기록 개수, 대화 내보내기/가져오기

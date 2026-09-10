@@ -3,11 +3,10 @@ gatherUsageStats = false
 
 [server]
 headless = true
-address = "localhost"
-port = 8765
 runOnSave = false
 fileWatcherType = "none"
 enableXsrfProtection = true
+maxUploadSize = 20
 
 [theme]
 base = "light"
