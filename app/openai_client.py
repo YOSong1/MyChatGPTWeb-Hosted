@@ -39,13 +39,20 @@ _TEMPERATURE_OK_PREFIXES = ("gpt-4", "gpt-3.5")
 
 FALLBACK_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"]
 
-# 도구를 켰을 때 시스템 프롬프트 뒤에 붙이는 지침
+# 항상 붙이는 지침: 여러 파일 코드는 파일명 제목 + 코드 블록으로. 앱이 개별 저장과 zip 묶음을 제공한다.
+_BASE_GUIDE = (
+    "코드 파일을 여러 개 만들어 달라는 요청이면 파일마다 '### 경로/파일명' 제목을 쓰고 바로 아래에 "
+    "코드 블록을 하나씩 둔다(예: '### src/app.py'). 사용자는 이 앱에서 각 파일을 개별로 또는 "
+    "전체를 zip으로 내려받을 수 있으므로, '폴더를 만들어 복사하라'거나 '압축은 불가능하다'고 답하지 않는다."
+)
+# 도구를 켰을 때 추가하는 지침
 _TOOL_GUIDE_SEARCH = (
     "최신 정보나 사실 확인이 필요한 질문에는 웹 검색을 사용하고, 답에 출처를 밝힌다."
 )
 _TOOL_GUIDE_FILES = (
-    "사용자가 문서, 슬라이드, 스프레드시트, 코드 파일 등 '파일'을 요청하면 파이썬으로 실제 파일을 "
-    "/mnt/data 에 만들어 제공한다. 파일 이름은 내용을 알 수 있게 짓는다. "
+    "사용자가 문서, 슬라이드, 스프레드시트, 코드 파일, 압축 파일 등 '파일'을 요청하면 파이썬으로 실제 파일을 "
+    "/mnt/data 에 만들어 제공한다. 여러 파일로 된 프로젝트나 폴더를 요청받으면 폴더 구조 그대로 만든 뒤 "
+    "zip 하나로 묶어 제공한다(zipfile 모듈). 파일 이름은 내용을 알 수 있게 짓는다. "
     "만든 파일마다 답변 끝에 반드시 다운로드 링크를 하나씩 적는다. "
     "사용한 코드는 사용자가 요청하지 않는 한 답변에 보여주지 않는다."
 )
@@ -313,6 +320,7 @@ def stream_chat(
 ) -> ResponseStream:
     """Responses API 스트리밍 호출. messages의 system 항목은 instructions로 보낸다."""
     instructions_parts = [m["content"] for m in messages if m.get("role") == "system"]
+    instructions_parts.append(_BASE_GUIDE)
     if web_search:
         instructions_parts.append(_TOOL_GUIDE_SEARCH)
     if code_interpreter:

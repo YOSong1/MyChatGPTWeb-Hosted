@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from pathlib import Path
 
 import streamlit as st
@@ -28,6 +30,15 @@ _EXT = {
 }
 _CODE_BLOCK_RE = re.compile(r"```([\w+#-]*)[^\n]*\n(.*?)```", re.DOTALL)
 _MIN_CODE_LINES = 3  # 이보다 짧은 코드 블록에는 저장 버튼을 붙이지 않는다
+# 코드 블록 앞 문장이나 첫 줄 주석에서 파일 이름을 찾는다: "### src/app.py", "**app.py**", "# file: app.py"
+_FILENAME_RE = re.compile(
+    r"(?<![\w/])((?:[\w.\-]+/)*[\w.\-]+\.(?:py|js|jsx|ts|tsx|html|css|json|csv|md|sh|sql|java|c|h|cpp|hpp|cs|go|rs|kt|"
+    r"swift|yml|yaml|xml|ps1|txt|toml|ini|cfg|env|r|php|rb|dart|vue|svelte|bat|ipynb|dockerfile))\b",
+    re.IGNORECASE,
+)
+_COMMENT_PREFIXES = ("#", "//", "<!--", "--", "/*", ";", "%", "'")
+# 파일 생성 스위치가 꺼진 채로 파일을 요청한 것으로 보이는 표현
+_FILE_REQUEST_RE = re.compile(r"zip|압축|폴더|pptx|docx|xlsx|pdf|엑셀|워드|파워포인트|슬라이드|파일로", re.IGNORECASE)
 
 
 # ---------- 상태 헬퍼 ----------
@@ -155,20 +166,61 @@ def _render_header(conv: Conversation) -> None:
                 st.rerun()
 
 
+def _guess_filename(preceding: str, code: str) -> str | None:
+    """코드 블록 앞 텍스트(마지막 줄들)나 코드 첫 줄 주석에서 파일 경로를 찾는다."""
+    first = code.lstrip().split("\n", 1)[0].strip()
+    if first.startswith(_COMMENT_PREFIXES):
+        m = _FILENAME_RE.search(first)
+        if m:
+            return m.group(1)
+    tail = preceding[-200:]
+    found = _FILENAME_RE.findall(tail)
+    if found:
+        return found[-1]
+    return None
+
+
+def _clean_path(name: str) -> str:
+    name = name.replace("\\", "/").strip().lstrip("./")
+    parts = [p for p in name.split("/") if p and p not in (".", "..")]
+    return "/".join(parts) if parts else ""
+
+
 def _code_blocks(content: str) -> list[tuple[str, str]]:
-    """(파일이름, 코드) 목록. 언어를 확장자로 바꾸고 snippet-1.py 식으로 이름 짓는다."""
-    out = []
+    """(파일경로, 코드) 목록. 파일 이름을 알아낼 수 없으면 snippet-N.ext."""
+    out: list[tuple[str, str]] = []
+    used: set[str] = set()
+    last_end = 0
     for i, m in enumerate(_CODE_BLOCK_RE.finditer(content), start=1):
         lang, code = m.group(1).lower().strip(), m.group(2)
-        if code.count("\n") + 1 < _MIN_CODE_LINES:
-            continue
-        ext = _EXT.get(lang, "txt")
-        out.append((f"snippet-{i}.{ext}", code))
+        preceding = content[last_end:m.start()]
+        last_end = m.end()
+        name = _clean_path(_guess_filename(preceding, code) or "")
+        if not name:
+            # 이름을 모르는 짧은 블록(명령어 한 줄 등)은 건너뛴다. 이름이 있으면 짧아도 파일이다.
+            if code.count("\n") + 1 < _MIN_CODE_LINES:
+                continue
+            name = f"snippet-{i}.{_EXT.get(lang, 'txt')}"
+        base, n = name, 2
+        while name in used:  # 같은 이름이 두 번 나오면 -2, -3 을 붙인다
+            stem, dot, ext = base.rpartition(".")
+            name = f"{stem}-{n}.{ext}" if dot else f"{base}-{n}"
+            n += 1
+        used.add(name)
+        out.append((name, code))
     return out
 
 
+def _zip_code_blocks(blocks: list[tuple[str, str]]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, code in blocks:
+            zf.writestr(name, code)
+    return buf.getvalue()
+
+
 def _render_message_extras(msg: Message, key_prefix: str) -> None:
-    """생성 파일 다운로드, 코드 블록 저장, 출처. assistant 메시지 아래에 붙는다."""
+    """생성 파일 다운로드, 코드 블록 저장, 코드 전체 zip, 출처. assistant 메시지 아래에 붙는다."""
     downloads: list[tuple[str, bytes, str]] = []  # (label, data, filename)
     for f in msg.files:
         path = Path(f.get("path", ""))
@@ -176,8 +228,11 @@ def _render_message_extras(msg: Message, key_prefix: str) -> None:
             downloads.append((f"📎 {f['name']}", path.read_bytes(), f["name"]))
         else:
             st.caption(f"📎 {f.get('name', '')} (파일이 삭제되어 다시 받을 수 없습니다)")
-    for name, code in _code_blocks(msg.content):
-        downloads.append((f"💾 {name}", code.encode("utf-8"), name))
+    blocks = _code_blocks(msg.content)
+    if len(blocks) >= 2:
+        downloads.append((f"🗜️ 코드 {len(blocks)}개 zip", _zip_code_blocks(blocks), "code-files.zip"))
+    for name, code in blocks:
+        downloads.append((f"💾 {name}", code.encode("utf-8"), name.rsplit("/", 1)[-1]))
 
     if downloads:
         cols = st.columns(min(len(downloads), 4))
@@ -278,6 +333,16 @@ def _render_actions(conv: Conversation, settings: Settings) -> None:
     if not conv.messages:
         return
     last = conv.messages[-1]
+
+    # 파일 생성 스위치가 꺼진 채로 파일·zip을 요청한 듯하면 스위치를 안내한다.
+    if (
+        not settings.code_interpreter
+        and last.role == "assistant"
+        and len(conv.messages) >= 2
+        and _FILE_REQUEST_RE.search(conv.messages[-2].content)
+        and not last.files
+    ):
+        st.caption("💡 실제 파일(pptx, docx, xlsx, zip 등)이 필요하면 아래 **📎 파일 생성**을 켜고 다시 요청하세요. 코드 여러 개는 위의 🗜️ zip 버튼으로 받을 수 있습니다.")
 
     if last.role == "user":
         # 답변을 받지 못한 상태
